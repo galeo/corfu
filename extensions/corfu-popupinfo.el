@@ -306,7 +306,6 @@ area and vertical area."
   (pcase-let*
       ((lh (default-line-height))
        (`(,pw . ,ph) ps)
-       (border (if (display-graphic-p corfu--frame) corfu-border-width 0))
        (`(,_pfx ,_pfy ,pfw ,pfh)
         (corfu-popupinfo--frame-geometry (frame-parent corfu--frame)))
        (`(,cfx ,cfy ,cfw ,cfh) (corfu-popupinfo--frame-geometry corfu--frame))
@@ -316,20 +315,34 @@ area and vertical area."
                          (or (cdr (posn-x-y (posn-at-point (point)))) 0))))
        ;; Popups aligned at top
        (top-aligned (or below (< ph cfh)))
+       (graphic (display-graphic-p corfu--frame))
+       (border (if graphic
+                   corfu-border-width
+                 (if corfu-border-on-tty 1 0)))
+       ;; 1 border-width space when corfu-border-on-tty is non-nil
+       (space (if (and (not graphic) corfu-border-on-tty) border 0))
+       ;; Horizontal display area
+       (ahy (if top-aligned
+                cfy
+              (max space (+ (- (+ cfy cfh) border border ph) space space))))
+       (ahh (if top-aligned
+                (min (- pfh cfy) ph)
+              (min (+ (- (+ cfy cfh) border border) space) ph)))
        ;; Left display area
-       (ahy (if top-aligned cfy (max 0 (- (+ cfy cfh) border border ph))))
-       (ahh (min ph (if top-aligned (- pfh cfy) (- (+ cfy cfh) border border))))
-       (al (list (max 0 (- cfx pw border)) ahy
-                 (min (- cfx border) pw) ahh 'left))
+       (al (list (max space (- cfx pw border space)) ahy
+                 (min (- cfx border space space) pw) ahh 'left))
        ;; Right display area
-       (arx (+ cfx cfw (- border)))
-       (ar (list arx ahy (min (- pfw arx border border) pw) ahh 'right))
+       (arx (+ cfx cfw (- border) space space space))
+       (ar (list arx ahy
+                 (min (+ (- pfw arx border border) space) pw) ahh 'right))
        ;; Vertical display area
-       (avw (min pw (- pfw cfx border border)))
+       (avw (min pw (+ (- pfw cfx border border) space)))
        (av (if below
-               (list cfx (+ cfy cfh (- border)) avw (min (- pfh cfy cfh border) ph) 'vertical)
-             (let ((h (min (- cfy border border) ph)))
-               (list cfx (max 0 (- cfy h border)) avw h 'vertical)))))
+               (list cfx (+ cfy cfh (- border) space space space)
+                     avw (min (- pfh cfy cfh border space space) ph) 'vertical)
+             (let ((h (min (- cfy border border space) ph)))
+               (list cfx (max space (- cfy h border space))
+                     avw h 'vertical)))))
     (list al ar av)))
 
 (defun corfu-popupinfo--area (ps)
@@ -364,7 +377,8 @@ form (X Y WIDTH HEIGHT DIR)."
             (not (and (corfu-popupinfo--visible-p)
                       (equal-including-properties candidate corfu-popupinfo--candidate))))
            (new-coords (frame-edges corfu--frame 'inner-edges))
-           (coords-changed (not (equal new-coords corfu-popupinfo--coordinates))))
+           (coords-changed (not (equal new-coords corfu-popupinfo--coordinates)))
+           (graphic (display-graphic-p corfu--frame)))
       (when cand-changed
         (if-let ((content (funcall corfu-popupinfo--function candidate)))
             (with-current-buffer (corfu--make-buffer corfu-popupinfo--buffer)
@@ -376,6 +390,9 @@ form (X Y WIDTH HEIGHT DIR)."
                 (set (make-local-variable (car var)) (cdr var)))
               (setq left-margin-width corfu-popupinfo-margin-width
                     right-margin-width corfu-popupinfo-margin-width)
+              (when (and (not graphic) (eq corfu-border-on-tty 'blended))
+                (face-remap-add-relative 'corfu-popupinfo
+                                         :background (face-attribute 'default :background)))
               (when-let ((m (memq 'corfu-default (alist-get 'default face-remapping-alist))))
                 (setcar m 'corfu-popupinfo)))
           (corfu-popupinfo--hide)
